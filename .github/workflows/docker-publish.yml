@@ -100,7 +100,10 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🚀 Usage" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker run -d -p 8080:8080 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.version || 'latest' }}" >> $GITHUB_STEP_SUMMARY
+          echo "# Create a directory for the config" >> $GITHUB_STEP_SUMMARY
+          echo "mkdir -p /path/to/usque/config" >> $GITHUB_STEP_SUMMARY
+          echo "# Run the container with the config directory mounted" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -d -p 8080:8080 -v /path/to/usque/config:/app ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.version || 'latest' }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
   security-scan:

@@ -9,10 +9,12 @@ WORKDIR /app
 
 # Copy the binary from the build stage
 COPY usque .
-COPY config.json .
 
 # Expose the web UI port
 EXPOSE 8080
+
+# Declare a volume for persistent data (e.g., config.json)
+VOLUME /app
 
 # Run the binary
 ENTRYPOINT ["./usque"]

@@ -1,0 +1,14 @@
+# Ignore git files
+.git
+.gitignore
+
+# Ignore config files
+config.json
+
+# Ignore build artifacts
+usque
+*.exe
+
+# Ignore local dev files
+.vscode
+*.md
