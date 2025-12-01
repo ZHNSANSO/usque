@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title data-i18n="Usque Registration">Usque Registration</title>
+    <link rel="stylesheet" href="/static/theme.css">
+</head>
+<body>
+    <button class="theme-toggle" onclick="toggleTheme()">🌓</button>
+    <h2 data-i18n="Usque Registration">Usque Registration</h2>
+    <p data-i18n="No configuration file found. Please register a new device.">No configuration file found. Please register a new device.</p>
+    <form action="/register/submit" method="post">
+        <fieldset>
+            <legend data-i18n="Web UI Admin">Web UI Admin</legend>
+            <label for="username" data-i18n="Username:">Username:</label><br>
+            <input type="text" id="username" name="username" required><br>
+            <label for="password" data-i18n="Password:">Password:</label><br>
+            <input type="password" id="password" name="password" required><br>
+        </fieldset>
+        <br>
+        <fieldset>
+            <legend data-i18n="Warp Details">Warp Details</legend>
+            <label for="deviceName" data-i18n="Device Name (optional):">Device Name (optional):</label><br>
+            <input type="text" id="deviceName" name="deviceName"><br>
+            <label for="jwt" data-i18n="Team JWT (for Zero Trust, optional):">Team JWT (for Zero Trust, optional):</label><br>
+            <input type="text" id="jwt" name="jwt"><br><br>
+        </fieldset>
+        <br>
+        <input type="submit" value="Register" data-i18n="Register">
+    </form>
+    <script src="/static/i18n.js"></script>
+    <script src="/static/theme.js"></script>
+</body>
+</html>

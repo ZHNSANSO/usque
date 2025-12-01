@@ -8,11 +8,10 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"time"
 
-	"github.com/Diniboy1123/usque/api"
 	"github.com/Diniboy1123/usque/config"
 	"github.com/Diniboy1123/usque/internal"
+	"github.com/Diniboy1123/usque/internal/tunnel"
 	"github.com/spf13/cobra"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 )
@@ -29,130 +28,30 @@ var portFwCmd = &cobra.Command{
 			return
 		}
 
-		sni, err := cmd.Flags().GetString("sni-address")
+		// Create tunnel config from flags
+		tunnelCfg, err := NewTunnelConfigFromFlags(cmd)
 		if err != nil {
-			cmd.Printf("Failed to get SNI address: %v\n", err)
-			return
+			log.Fatalf("Failed to create tunnel config: %v", err)
 		}
 
-		privKey, err := config.AppConfig.GetEcPrivateKey()
+		// Create the tunnel
+		t, err := tunnel.NewTunnel(tunnelCfg)
 		if err != nil {
-			cmd.Printf("Failed to get private key: %v\n", err)
-			return
+			log.Fatalf("Failed to create tunnel: %v", err)
 		}
-		peerPubKey, err := config.AppConfig.GetEcEndpointPublicKey()
-		if err != nil {
-			cmd.Printf("Failed to get public key: %v\n", err)
-			return
-		}
+		defer t.Close()
 
-		cert, err := internal.GenerateCert(privKey, &privKey.PublicKey)
-		if err != nil {
-			cmd.Printf("Failed to generate cert: %v\n", err)
-			return
-		}
-
-		tlsConfig, err := api.PrepareTlsConfig(privKey, peerPubKey, cert, sni)
-		if err != nil {
-			cmd.Printf("Failed to prepare TLS config: %v\n", err)
-			return
-		}
-
-		keepalivePeriod, err := cmd.Flags().GetDuration("keepalive-period")
-		if err != nil {
-			cmd.Printf("Failed to get keepalive period: %v\n", err)
-			return
-		}
-		initialPacketSize, err := cmd.Flags().GetUint16("initial-packet-size")
-		if err != nil {
-			cmd.Printf("Failed to get initial packet size: %v\n", err)
-			return
-		}
-
-		connectPort, err := cmd.Flags().GetInt("connect-port")
-		if err != nil {
-			cmd.Printf("Failed to get connect port: %v\n", err)
-			return
-		}
-
-		var endpoint *net.UDPAddr
-		if ipv6, err := cmd.Flags().GetBool("ipv6"); err == nil && !ipv6 {
-			endpoint = &net.UDPAddr{
-				IP:   net.ParseIP(config.AppConfig.EndpointV4),
-				Port: connectPort,
-			}
-		} else {
-			endpoint = &net.UDPAddr{
-				IP:   net.ParseIP(config.AppConfig.EndpointV6),
-				Port: connectPort,
-			}
-		}
-
-		tunnelIPv4, err := cmd.Flags().GetBool("no-tunnel-ipv4")
-		if err != nil {
-			cmd.Printf("Failed to get no tunnel IPv4: %v\n", err)
-			return
-		}
-
-		tunnelIPv6, err := cmd.Flags().GetBool("no-tunnel-ipv6")
-		if err != nil {
-			cmd.Printf("Failed to get no tunnel IPv6: %v\n", err)
-			return
-		}
-
-		var localAddresses []netip.Addr
-		if !tunnelIPv4 {
-			v4, err := netip.ParseAddr(config.AppConfig.IPv4)
-			if err != nil {
-				cmd.Printf("Failed to parse IPv4 address: %v\n", err)
-				return
-			}
-			localAddresses = append(localAddresses, v4)
-		}
-		if !tunnelIPv6 {
-			v6, err := netip.ParseAddr(config.AppConfig.IPv6)
-			if err != nil {
-				cmd.Printf("Failed to parse IPv6 address: %v\n", err)
-				return
-			}
-			localAddresses = append(localAddresses, v6)
-		}
-
-		dnsServers, err := cmd.Flags().GetStringArray("dns")
-		if err != nil {
-			cmd.Printf("Failed to get DNS servers: %v\n", err)
-			return
-		}
-
-		var dnsAddrs []netip.Addr
-		for _, dns := range dnsServers {
-			addr, err := netip.ParseAddr(dns)
-			if err != nil {
-				cmd.Printf("Failed to parse DNS server: %v\n", err)
-				return
-			}
-			dnsAddrs = append(dnsAddrs, addr)
-		}
-
-		mtu, err := cmd.Flags().GetInt("mtu")
-		if err != nil {
-			cmd.Printf("Failed to get MTU: %v\n", err)
-			return
-		}
-		if mtu != 1280 {
-			log.Println("Warning: MTU is not the default 1280. This is not supported. Packet loss and other issues may occur.")
-		}
+		// Start the tunnel
+		t.Start(context.Background())
 
 		localPorts, err := cmd.Flags().GetStringArray("local-ports")
 		if err != nil {
-			cmd.Printf("Failed to get local ports: %v\n", err)
-			return
+			log.Fatalf("Failed to get local ports: %v", err)
 		}
 
 		remotePorts, err := cmd.Flags().GetStringArray("remote-ports")
 		if err != nil {
-			cmd.Printf("Failed to get remote ports: %v\n", err)
-			return
+			log.Fatalf("Failed to get remote ports: %v", err)
 		}
 
 		var localPortMappings []internal.PortMapping
@@ -161,8 +60,7 @@ var portFwCmd = &cobra.Command{
 		for _, port := range localPorts {
 			portMapping, err := internal.ParsePortMapping(port)
 			if err != nil {
-				cmd.Printf("Failed to parse local port mapping: %v\n", err)
-				return
+				log.Fatalf("Failed to parse local port mapping: %v", err)
 			}
 			localPortMappings = append(localPortMappings, portMapping)
 		}
@@ -170,35 +68,19 @@ var portFwCmd = &cobra.Command{
 		for _, port := range remotePorts {
 			portMapping, err := internal.ParsePortMapping(port)
 			if err != nil {
-				cmd.Printf("Failed to parse remote port mapping: %v\n", err)
-				return
+				log.Fatalf("Failed to parse remote port mapping: %v", err)
 			}
 			remotePortMappings = append(remotePortMappings, portMapping)
 		}
-
-		reconnectDelay, err := cmd.Flags().GetDuration("reconnect-delay")
-		if err != nil {
-			cmd.Printf("Failed to get reconnect delay: %v\n", err)
-			return
-		}
-
-		tunDev, tunNet, err := netstack.CreateNetTUN(localAddresses, dnsAddrs, mtu)
-		if err != nil {
-			cmd.Printf("Failed to create virtual TUN device: %v\n", err)
-			return
-		}
-		defer tunDev.Close()
-
-		go api.MaintainTunnel(context.Background(), tlsConfig, keepalivePeriod, initialPacketSize, endpoint, api.NewNetstackAdapter(tunDev), mtu, reconnectDelay)
 
 		log.Printf("Virtual tunnel created, forwarding ports")
 
 		// Start Local Port Forwarding (-L)
 		for _, pm := range localPortMappings {
 			go func(pm internal.PortMapping) {
-				err := forwardPort(tunNet, pm, false) // false = local forwarding
+				err := forwardPort(t.Net, pm, false) // false = local forwarding
 				if err != nil {
-					cmd.Printf("Error in local forwarding %d: %v\n", pm.LocalPort, err)
+					log.Printf("Error in local forwarding %d: %v\n", pm.LocalPort, err)
 				}
 			}(pm)
 		}
@@ -206,9 +88,9 @@ var portFwCmd = &cobra.Command{
 		// Start Remote Port Forwarding (-R)
 		for _, pm := range remotePortMappings {
 			go func(pm internal.PortMapping) {
-				err := forwardPort(tunNet, pm, true) // true = remote forwarding
+				err := forwardPort(t.Net, pm, true) // true = remote forwarding
 				if err != nil {
-					cmd.Printf("Error in remote forwarding %d: %v\n", pm.LocalPort, err)
+					log.Printf("Error in remote forwarding %d: %v\n", pm.LocalPort, err)
 				}
 			}(pm)
 		}
@@ -217,17 +99,17 @@ var portFwCmd = &cobra.Command{
 		// a ping may suffice as well, but we will use a simple GET request
 		client := &http.Client{
 			Transport: &http.Transport{
-				DialContext: tunNet.DialContext,
+				DialContext: t.Net.DialContext,
 			},
 		}
 		resp, err := client.Get("https://cloudflareok.com/test")
 		if err != nil {
-			cmd.Printf("Failed to make request to cloudflare.com: %v\n", err)
+			log.Printf("Failed to make request to cloudflare.com: %v\n", err)
 			return
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 204 {
-			cmd.Printf("Failed to make request to cloudflare.com: %s\n", resp.Status)
+			log.Printf("Failed to make request to cloudflare.com: %s\n", resp.Status)
 			return
 		}
 		log.Println("Successfully connected to Cloudflare")
@@ -237,14 +119,6 @@ var portFwCmd = &cobra.Command{
 }
 
 // forwardPort sets up a local or remote port forwarding using either the MASQUE tunnel or the local network.
-//
-// Parameters:
-//   - netstackNet: *netstack.Net - The network stack used for handling remote forwarding.
-//   - pm: internal.PortMapping - The port mapping configuration containing bind address, local port, remote IP, and remote port.
-//   - isRemote: bool - Indicates whether the forwarding is remote (true) or local (false).
-//
-// Returns:
-//   - error: An error if port forwarding fails; otherwise, nil.
 func forwardPort(netstackNet *netstack.Net, pm internal.PortMapping, isRemote bool) error {
 	localAddrPort, err := netip.ParseAddrPort(fmt.Sprintf("%s:%d", pm.BindAddress, pm.LocalPort))
 	if err != nil {
@@ -293,12 +167,6 @@ func forwardPort(netstackNet *netstack.Net, pm internal.PortMapping, isRemote bo
 }
 
 // handleConnection manages an individual forwarded connection between the local and remote endpoints.
-//
-// Parameters:
-//   - localConn: net.Conn - The connection from the source (client).
-//   - pm: internal.PortMapping - The port mapping configuration.
-//   - isRemote: bool - Indicates whether the connection is remote-forwarded.
-//   - tunNet: *netstack.Net - The network stack used for making remote connections.
 func handleConnection(localConn net.Conn, pm internal.PortMapping, isRemote bool, tunNet *netstack.Net) {
 	defer localConn.Close()
 
@@ -328,17 +196,12 @@ func handleConnection(localConn net.Conn, pm internal.PortMapping, isRemote bool
 }
 
 func init() {
+	// Add tunnel-specific flags
+	AddTunnelFlags(portFwCmd)
+
+	// Add command-specific flags
 	portFwCmd.Flags().StringArrayP("local-ports", "L", []string{}, "List of port mappings to forward (SSH like e.g. localhost:8080:100.96.0.2:8080)")
 	portFwCmd.Flags().StringArrayP("remote-ports", "R", []string{}, "List of port mappings to forward (SSH like e.g. 100.96.0.3:8080:localhost:8080)")
-	portFwCmd.Flags().IntP("connect-port", "P", 443, "Used port for MASQUE connection")
-	portFwCmd.Flags().StringArrayP("dns", "d", []string{"9.9.9.9", "149.112.112.112", "2620:fe::fe", "2620:fe::9"}, "DNS servers to use inside the MASQUE tunnel")
-	portFwCmd.Flags().BoolP("ipv6", "6", false, "Use IPv6 for MASQUE connection")
-	portFwCmd.Flags().BoolP("no-tunnel-ipv4", "F", false, "Disable IPv4 inside the MASQUE tunnel")
-	portFwCmd.Flags().BoolP("no-tunnel-ipv6", "S", false, "Disable IPv6 inside the MASQUE tunnel")
-	portFwCmd.Flags().StringP("sni-address", "s", internal.ConnectSNI, "SNI address to use for MASQUE connection")
-	portFwCmd.Flags().DurationP("keepalive-period", "k", 30*time.Second, "Keepalive period for MASQUE connection")
-	portFwCmd.Flags().IntP("mtu", "m", 1280, "MTU for MASQUE connection")
-	portFwCmd.Flags().Uint16P("initial-packet-size", "i", 1242, "Initial packet size for MASQUE connection")
-	portFwCmd.Flags().DurationP("reconnect-delay", "r", 1*time.Second, "Delay between reconnect attempts")
+
 	rootCmd.AddCommand(portFwCmd)
 }

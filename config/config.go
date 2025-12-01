@@ -21,6 +21,8 @@ type Config struct {
 	AccessToken    string `json:"access_token"`     // Authentication token for API access
 	IPv4           string `json:"ipv4"`             // Assigned IPv4 address
 	IPv6           string `json:"ipv6"`             // Assigned IPv6 address
+	Username       string `json:"username"`         // Username for web UI
+	Password       string `json:"password"`         // Hashed password for web UI
 }
 
 // AppConfig holds the global application configuration.

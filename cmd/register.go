@@ -1,13 +1,12 @@
 package cmd
 
 import (
-	"encoding/base64"
 	"fmt"
 	"log"
 
-	"github.com/Diniboy1123/usque/api"
 	"github.com/Diniboy1123/usque/config"
 	"github.com/Diniboy1123/usque/internal"
+	"github.com/Diniboy1123/usque/internal/registration"
 	"github.com/spf13/cobra"
 )
 
@@ -67,45 +66,17 @@ var registerCmd = &cobra.Command{
 			log.Fatalf("Failed to get accept-tos flag: %v", err)
 		}
 
-		accountData, err := api.Register(model, locale, jwt, acceptTos)
+		err = registration.RegisterDevice(deviceName, model, locale, jwt, acceptTos)
 		if err != nil {
-			log.Fatalf("Failed to register: %v", err)
-		}
-
-		privKey, pubKey, err := internal.GenerateEcKeyPair()
-		if err != nil {
-			log.Fatalf("Failed to generate key pair: %v", err)
-		}
-
-		log.Printf("Enrolling device key...")
-
-		updatedAccountData, apiErr, err := api.EnrollKey(accountData, pubKey, deviceName)
-		if err != nil {
-			if apiErr != nil {
-				log.Fatalf("Failed to enroll key: %v (API errors: %s)", err, apiErr.ErrorsAsString("; "))
-			} else {
-				log.Fatalf("Failed to enroll key: %v", err)
-			}
+			log.Fatalf("Failed to register device: %v", err)
 		}
 
 		log.Printf("Successful registration. Saving config...")
 
-		config.AppConfig = config.Config{
-			PrivateKey: base64.StdEncoding.EncodeToString(privKey),
-			// TODO: proper endpoint parsing in utils
-			// strip :0
-			EndpointV4: updatedAccountData.Config.Peers[0].Endpoint.V4[:len(updatedAccountData.Config.Peers[0].Endpoint.V4)-2],
-			// strip [ from beginning and ]:0 from end
-			EndpointV6:     updatedAccountData.Config.Peers[0].Endpoint.V6[1 : len(updatedAccountData.Config.Peers[0].Endpoint.V6)-3],
-			EndpointPubKey: updatedAccountData.Config.Peers[0].PublicKey,
-			License:        updatedAccountData.Account.License,
-			ID:             updatedAccountData.ID,
-			AccessToken:    accountData.Token,
-			IPv4:           updatedAccountData.Config.Interface.Addresses.V4,
-			IPv6:           updatedAccountData.Config.Interface.Addresses.V6,
+		err = config.AppConfig.SaveConfig(configPath)
+		if err != nil {
+			log.Fatalf("Failed to save config: %v", err)
 		}
-
-		config.AppConfig.SaveConfig(configPath)
 
 		log.Printf("Config saved to %s", configPath)
 	},

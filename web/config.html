@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title data-i18n="Usque Configuration">Usque Configuration</title>
+    <link rel="stylesheet" href="/static/theme.css">
+</head>
+<body>
+    <button class="theme-toggle" onclick="toggleTheme()">🌓</button>
+    <h2 data-i18n="Usque Configuration">Usque Configuration</h2>
+    <form action="/save" method="post">
+        <fieldset>
+            <legend data-i18n="Web UI">Web UI</legend>
+            <label for="username" data-i18n="Username:">Username:</label><br>
+            <input type="text" id="username" name="username" value="{{.Username}}"><br>
+            <label for="password" data-i18n="New Password (leave blank to keep current):">New Password (leave blank to keep current):</label><br>
+            <input type="password" id="password" name="password"><br>
+        </fieldset>
+        <br>
+        <fieldset>
+            <legend data-i18n="Warp Details">Warp Details</legend>
+            <label for="private_key" data-i18n="Private Key:">Private Key:</label><br>
+            <textarea id="private_key" name="private_key" rows="4" cols="50">{{.PrivateKey}}</textarea><br>
+            <label for="endpoint_v4" data-i18n="Endpoint IPv4:">Endpoint IPv4:</label><br>
+            <input type="text" id="endpoint_v4" name="endpoint_v4" value="{{.EndpointV4}}"><br>
+            <label for="endpoint_v6" data-i18n="Endpoint IPv6:">Endpoint IPv6:</label><br>
+            <input type="text" id="endpoint_v6" name="endpoint_v6" value="{{.EndpointV6}}"><br>
+            <label for="endpoint_pub_key" data-i18n="Endpoint Public Key:">Endpoint Public Key:</label><br>
+            <textarea id="endpoint_pub_key" name="endpoint_pub_key" rows="4" cols="50">{{.EndpointPubKey}}</textarea><br>
+            <label for="license" data-i18n="License:">License:</label><br>
+            <input type="text" id="license" name="license" value="{{.License}}"><br>
+            <label for="id" data-i18n="Device ID:">Device ID:</label><br>
+            <input type="text" id="id" name="id" value="{{.ID}}"><br>
+            <label for="access_token" data-i18n="Access Token:">Access Token:</label><br>
+            <input type="text" id="access_token" name="access_token" value="{{.AccessToken}}"><br>
+            <label for="ipv4" data-i18n="Assigned IPv4:">Assigned IPv4:</label><br>
+            <input type="text" id="ipv4" name="ipv4" value="{{.IPv4}}"><br>
+            <label for="ipv6" data-i18n="Assigned IPv6:">Assigned IPv6:</label><br>
+            <input type="text" id="ipv6" name="ipv6" value="{{.IPv6}}"><br>
+        </fieldset>
+        <br>
+        <input type="submit" value="Save" data-i18n="Save">
+    </form>
+    <script src="/static/i18n.js"></script>
+    <script src="/static/theme.js"></script>
+</body>
+</html>

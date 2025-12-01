@@ -24,6 +24,10 @@ var rootCmd = &cobra.Command{
 			}
 		}
 	},
+	Run: func(cmd *cobra.Command, args []string) {
+		// If no subcommand is specified, print help
+		cmd.Help()
+	},
 }
 
 func Execute() error {

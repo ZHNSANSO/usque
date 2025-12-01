@@ -1,0 +1,35 @@
+/* Basic styles */
+body {
+    font-family: sans-serif;
+    margin: 2em;
+    background-color: #fff;
+    color: #111;
+}
+
+/* Dark mode styles */
+html.dark body {
+    background-color: #111;
+    color: #eee;
+}
+
+html.dark input, html.dark textarea {
+    background-color: #333;
+    color: #eee;
+    border: 1px solid #555;
+}
+
+html.dark fieldset {
+    border-color: #555;
+}
+
+html.dark a {
+    color: #8af;
+}
+
+/* Theme toggle button */
+.theme-toggle {
+    position: fixed;
+    top: 1em;
+    right: 1em;
+    cursor: pointer;
+}

@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title data-i18n="Usque Login">Usque Login</title>
+    <link rel="stylesheet" href="/static/theme.css">
+</head>
+<body>
+    <button class="theme-toggle" onclick="toggleTheme()">🌓</button>
+    <h2 data-i18n="Usque Login">Usque Login</h2>
+    <form action="/login/auth" method="post">
+        <label for="username" data-i18n="Username:">Username:</label><br>
+        <input type="text" id="username" name="username"><br>
+        <label for="password" data-i18n="Password:">Password:</label><br>
+        <input type="password" id="password" name="password"><br><br>
+        <input type="submit" value="Login" data-i18n="Login">
+    </form>
+    <script src="/static/i18n.js"></script>
+    <script src="/static/theme.js"></script>
+</body>
+</html>
