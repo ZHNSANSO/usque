@@ -1,21 +1,18 @@
-FROM golang:alpine AS builder
-
-WORKDIR /app
-
-COPY go.mod .
-COPY go.sum .
-
-RUN go mod download
-
-COPY . .
-
-RUN go build -o usque -ldflags="-s -w" .
-
-# scratch won't be enough, because we need a cert store
+# Use a small base image
 FROM alpine:latest
 
+# Add certificates
+RUN apk add --no-cache ca-certificates
+
+# Set working directory
 WORKDIR /app
 
-COPY --from=builder /app/usque /bin/usque
+# Copy the binary from the build stage
+COPY usque .
+COPY config.json .
 
-ENTRYPOINT ["/bin/usque"]
+# Expose the web UI port
+EXPOSE 8080
+
+# Run the binary
+ENTRYPOINT ["./usque"]

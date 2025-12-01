@@ -13,6 +13,7 @@ require (
 	github.com/things-go/go-socks5 v0.1.0
 	github.com/vishvananda/netlink v1.3.1
 	github.com/yosida95/uritemplate/v3 v3.0.2
+	golang.org/x/crypto v0.43.0
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb
 )
 
@@ -24,7 +25,6 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	go.uber.org/mock v0.6.0 // indirect
-	golang.org/x/crypto v0.43.0 // indirect
 	golang.org/x/mod v0.29.0 // indirect
 	golang.org/x/net v0.46.0 // indirect
 	golang.org/x/sync v0.17.0 // indirect

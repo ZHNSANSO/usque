@@ -7,7 +7,6 @@ import (
 	"github.com/Diniboy1123/usque/api"
 	"github.com/Diniboy1123/usque/config"
 	"github.com/Diniboy1123/usque/internal"
-	"github.com/Diniboy1123/usque/web"
 )
 
 // RegisterDevice performs the full device registration flow.
@@ -30,7 +29,7 @@ func RegisterDevice(deviceName, model, locale, jwt, username, password string) e
 		return fmt.Errorf("failed to enroll key: %w", err)
 	}
 
-	hashedPassword, err := web.HashPassword(password)
+	hashedPassword, err := internal.HashPassword(password)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}

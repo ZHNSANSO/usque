@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/Diniboy1123/usque/config"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // Auth is a middleware that checks for a valid user session.
@@ -26,16 +25,4 @@ func Auth(next http.HandlerFunc) http.HandlerFunc {
 
 		next.ServeHTTP(w, r)
 	}
-}
-
-// HashPassword generates a bcrypt hash of the password.
-func HashPassword(password string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
-	return string(bytes), err
-}
-
-// CheckPasswordHash compares a password with a hash.
-func CheckPasswordHash(password, hash string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-	return err == nil
 }

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Diniboy1123/usque/config"
+	"github.com/Diniboy1123/usque/internal"
 )
 
 // Login serves the login page.
@@ -22,7 +23,7 @@ func LoginFunc(w http.ResponseWriter, r *http.Request) {
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 
-	if username == config.AppConfig.Username && CheckPasswordHash(password, config.AppConfig.Password) {
+	if username == config.AppConfig.Username && internal.CheckPasswordHash(password, config.AppConfig.Password) {
 		// Set a simple session cookie
 		http.SetCookie(w, &http.Cookie{
 			Name:    "usque_session",
