@@ -1,127 +1,54 @@
 project_name: usque
 version: 2
+
 builds:
   - id: android
-    goos:
-      - android
-    goarch:
-      - arm64
-    goarm:
-      - 5
-      - 6
-      - 7
-    env:
-      - CGO_ENABLED=0
-    flags:
-      - -trimpath
+    goos: [android]
+    goarch: [arm64]
+    env: [CGO_ENABLED=0]
     ldflags:
-      - "-s -w"
-      - "-X github.com/Diniboy1123/usque/cmd.version={{.Tag}}"
-      - "-X github.com/Diniboy1123/usque/cmd.commit={{.Commit}}"
-      - "-X github.com/Diniboy1123/usque/cmd.date={{.Date}}"
-  
-  - id: linux-amd64
-    goos:
-      - linux
-    goarch:
-      - amd64
-    env:
-      - CGO_ENABLED=0
-    flags:
-      - -trimpath
-    ldflags:
-      - "-s -w"
-      - "-X github.com/Diniboy1123/usque/cmd.version={{.Tag}}"
-      - "-X github.com/Diniboy1123/usque/cmd.commit={{.Commit}}"
-      - "-X github.com/Diniboy1123/usque/cmd.date={{.Date}}"
+      - -s -w
+      - -X github.com/Diniboy1123/usque/cmd.version={{.Tag}}
+      - -X github.com/Diniboy1123/usque/cmd.commit={{.Commit}}
+      - -X github.com/Diniboy1123/usque/cmd.date={{.Date}}
+    flags: [-trimpath]
 
-  - id: linux-arm
-    goos:
-      - linux
-    goarch:
-      - arm
-    goarm:
-      - 5
-      - 6
-      - 7
-    env:
-      - CGO_ENABLED=0
-    flags:
-      - -trimpath
+  - id: linux
+    goos: [linux]
+    goarch: [amd64, arm, arm64, mips, mipsle, mips64, mips64le]
+    goarm: [5, 6, 7]
+    env: [CGO_ENABLED=0]
     ldflags:
-      - "-s -w"
-      - "-X github.com/Diniboy1123/usque/cmd.version={{.Tag}}"
-      - "-X github.com/Diniboy1123/usque/cmd.commit={{.Commit}}"
-      - "-X github.com/Diniboy1123/usque/cmd.date={{.Date}}"
-
-  - id: linux-arm64
-    goos:
-      - linux
-    goarch:
-      - arm64
-    env:
-      - CGO_ENABLED=0
-    flags:
-      - -trimpath
-    ldflags:
-      - "-s -w"
-      - "-X github.com/Diniboy1123/usque/cmd.version={{.Tag}}"
-      - "-X github.com/Diniboy1123/usque/cmd.commit={{.Commit}}"
-      - "-X github.com/Diniboy1123/usque/cmd.date={{.Date}}"
-
-  - id: linux-mips
-    goos:
-      - linux
-    goarch:
-      - mips
-      - mipsle
-      - mips64
-      - mips64le
-    env:
-      - CGO_ENABLED=0
-    flags:
-      - -trimpath
-    ldflags:
-      - "-s -w"
-      - "-X github.com/Diniboy1123/usque/cmd.version={{.Tag}}"
-      - "-X github.com/Diniboy1123/usque/cmd.commit={{.Commit}}"
-      - "-X github.com/Diniboy1123/usque/cmd.date={{.Date}}"
+      - -s -w
+      - -X github.com/Diniboy1123/usque/cmd.version={{.Tag}}
+      - -X github.com/Diniboy1123/usque/cmd.commit={{.Commit}}
+      - -X github.com/Diniboy1123/usque/cmd.date={{.Date}}
+    flags: [-trimpath]
 
   - id: windows
-    goos:
-      - windows
-    goarch:
-      - arm64
-      - amd64
-    env:
-      - CGO_ENABLED=0
-    flags:
-      - -trimpath
+    goos: [windows]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
     ldflags:
-      - "-s -w"
-      - "-X github.com/Diniboy1123/usque/cmd.version={{.Tag}}"
-      - "-X github.com/Diniboy1123/usque/cmd.commit={{.Commit}}"
-      - "-X github.com/Diniboy1123/usque/cmd.date={{.Date}}"
+      - -s -w
+      - -X github.com/Diniboy1123/usque/cmd.version={{.Tag}}
+      - -X github.com/Diniboy1123/usque/cmd.commit={{.Commit}}
+      - -X github.com/Diniboy1123/usque/cmd.date={{.Date}}
+    flags: [-trimpath]
 
   - id: darwin
-    goos:
-      - darwin
-    goarch:
-      - arm64
-      - amd64
-    env:
-      - CGO_ENABLED=0
-    flags:
-      - -trimpath
+    goos: [darwin]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
     ldflags:
-      - "-s -w"
-      - "-X github.com/Diniboy1123/usque/cmd.version={{.Tag}}"
-      - "-X github.com/Diniboy1123/usque/cmd.commit={{.Commit}}"
-      - "-X github.com/Diniboy1123/usque/cmd.date={{.Date}}"
+      - -s -w
+      - -X github.com/Diniboy1123/usque/cmd.version={{.Tag}}
+      - -X github.com/Diniboy1123/usque/cmd.commit={{.Commit}}
+      - -X github.com/Diniboy1123/usque/cmd.date={{.Date}}
+    flags: [-trimpath]
 
 archives:
-  - formats:
-    - zip
+  - formats: [zip]
     name_template: "usque_{{.Version}}_{{.Os}}_{{.Arch}}{{if .Arm}}v{{.Arm}}{{end}}"
     files:
       - LICENSE.md
@@ -132,5 +59,5 @@ checksum:
 
 release:
   github:
-    owner: Diniboy1123
-    name: usque
+    owner: "{{ .Env.GITHUB_REPOSITORY_OWNER }}"
+    name: "{{ .ProjectName }}"

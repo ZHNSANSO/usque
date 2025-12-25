@@ -1,35 +1,135 @@
-name: Build and Release
+name: 📦 Build and Release
 
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:  # Allows manual triggering
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. v1.0.0). If empty, GoReleaser will use existing tag.'
+        required: false
+        type: string
+        default: 'v1.0.0'
+      push_docker:
+        description: 'Build and push Docker image'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  packages: write
 
 jobs:
-  release:
-    name: Build and Release
+  lint:
+    name: 🔍 Lint and Check
     runs-on: ubuntu-latest
-    permissions:
-      contents: write  # Required for GitHub Releases
-
     steps:
-      - name: Checkout Repository
+      - name: 🔍 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🏗️ Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.2'
+          cache: true
+
+      - name: 🛠️ Go Mod Tidy
+        run: go mod tidy && git diff --exit-code
+
+      - name: 🧪 Go Vet
+        run: go vet ./...
+
+  release:
+    name: 🚀 Binary Release
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🔍 Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up Go
+      - name: 🏗️ Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.24.2
+          go-version: '1.24.2'
 
-      - name: Install GoReleaser
+      - name: 🏷️ Set up Git Tag
+        shell: bash
         run: |
-          curl -sL https://github.com/goreleaser/goreleaser/releases/latest/download/goreleaser_Linux_x86_64.tar.gz | tar xz -C /tmp
-          sudo mv /tmp/goreleaser /usr/local/bin/
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
+            TAG_NAME="${{ github.event.inputs.version }}"
+            # Check if tag already exists locally or remotely
+            if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+              echo "Tag $TAG_NAME already exists."
+            else
+              echo "Creating and pushing tag: $TAG_NAME"
+              git config user.name "github-actions[bot]"
+              git config user.email "github-actions[bot]@users.noreply.github.com"
+              git tag "$TAG_NAME"
+              git push origin "$TAG_NAME"
+            fi
+          fi
 
-      - name: Run GoReleaser
+      - name: 🚀 Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: goreleaser release --clean
+
+      - name: 📤 Archive Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: usque-binaries
+          path: dist/*.zip
+
+  docker:
+    name: 🐳 Docker Build
+    needs: lint
+    if: |
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.push_docker == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🔍 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🏷️ Lowercase Repo Name
+        id: repo_name
+        run: echo "image_name=${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
+
+      - name: 🏗️ Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔓 Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ steps.repo_name.outputs.image_name }}
+          tags: |
+            type=raw,value=${{ github.event.inputs.version }},enable=${{ github.event.inputs.version != '' }}
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ github.event_name == 'push' || github.event.inputs.version != '' }}
+
+      - name: 🚀 Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
