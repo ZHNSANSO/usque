@@ -15,9 +15,9 @@ import (
 type tunDevice struct {
 	name     string
 	mtu      int
-	iproute2 bool
 	ipv4     bool
 	ipv6     bool
+	iproute2 bool
 }
 
 var nativeTunCmd = &cobra.Command{
@@ -76,16 +76,23 @@ var nativeTunCmd = &cobra.Command{
 			return
 		}
 
-		var endpoint *net.UDPAddr
-		if ipv6, err := cmd.Flags().GetBool("ipv6"); err == nil && !ipv6 {
-			endpoint = &net.UDPAddr{
-				IP:   net.ParseIP(config.AppConfig.EndpointV4),
-				Port: connectPort,
-			}
-		} else {
-			endpoint = &net.UDPAddr{
-				IP:   net.ParseIP(config.AppConfig.EndpointV6),
-				Port: connectPort,
+		var endpointV4, endpointV6 *net.UDPAddr
+		if ipv6, err := cmd.Flags().GetBool("ipv6"); err == nil {
+			if !ipv6 {
+				endpointV4 = &net.UDPAddr{
+					IP:   net.ParseIP(config.AppConfig.EndpointV4),
+					Port: connectPort,
+				}
+				endpointV6 = &net.UDPAddr{
+					IP:   net.ParseIP(config.AppConfig.EndpointV6),
+					Port: connectPort,
+				}
+			} else {
+				endpointV6 = &net.UDPAddr{
+					IP:   net.ParseIP(config.AppConfig.EndpointV6),
+					Port: connectPort,
+				}
+				endpointV4 = nil
 			}
 		}
 
@@ -110,9 +117,15 @@ var nativeTunCmd = &cobra.Command{
 			log.Println("Warning: MTU is not the default 1280. This is not supported. Packet loss and other issues may occur.")
 		}
 
-		setIproute2, err := cmd.Flags().GetBool("no-iproute2")
+		noIproute2, err := cmd.Flags().GetBool("no-iproute2")
 		if err != nil {
-			cmd.Printf("Failed to get no set address: %v\n", err)
+			cmd.Printf("Failed to get no-iproute2 flag: %v\n", err)
+			return
+		}
+
+		ifaceName, err := cmd.Flags().GetString("interface-name")
+		if err != nil {
+			cmd.Printf("Failed to get interface-name: %v\n", err)
 			return
 		}
 
@@ -122,37 +135,23 @@ var nativeTunCmd = &cobra.Command{
 			return
 		}
 
-		interfaceName, err := cmd.Flags().GetString("interface-name")
-		if err != nil {
-			cmd.Printf("Failed to get interface name: %v\n", err)
-			return
-		}
-
-		if interfaceName != "" {
-			err = internal.CheckIfname(interfaceName)
-			if err != nil {
-				log.Printf("Invalid interface name: %v", err)
-				return
-			}
-		}
-
 		t := &tunDevice{
-			name:     interfaceName,
+			name:     ifaceName,
 			mtu:      mtu,
-			iproute2: !setIproute2,
 			ipv4:     !tunnelIPv4,
 			ipv6:     !tunnelIPv6,
+			iproute2: !noIproute2,
 		}
 
 		dev, err := t.create()
 		if err != nil {
-			log.Println("Are you root/administrator? TUN device creation usually requires elevated privileges.")
-			log.Fatalf("Failed to create TUN device: %v", err)
+			cmd.Printf("Failed to create TUN device: %v\n", err)
+			return
 		}
 
 		log.Printf("Created TUN device: %s", t.name)
 
-		go api.MaintainTunnel(context.Background(), tlsConfig, keepalivePeriod, initialPacketSize, endpoint, dev, mtu, reconnectDelay)
+		go api.MaintainTunnel(context.Background(), tlsConfig, keepalivePeriod, initialPacketSize, endpointV4, endpointV6, dev, mtu, reconnectDelay)
 
 		log.Println("Tunnel established, you may now set up routing and DNS")
 
@@ -161,16 +160,16 @@ var nativeTunCmd = &cobra.Command{
 }
 
 func init() {
-	nativeTunCmd.Flags().IntP("connect-port", "P", 443, "Used port for MASQUE connection")
-	nativeTunCmd.Flags().BoolP("ipv6", "6", false, "Use IPv6 for MASQUE connection")
 	nativeTunCmd.Flags().BoolP("no-tunnel-ipv4", "F", false, "Disable IPv4 inside the MASQUE tunnel")
 	nativeTunCmd.Flags().BoolP("no-tunnel-ipv6", "S", false, "Disable IPv6 inside the MASQUE tunnel")
 	nativeTunCmd.Flags().StringP("sni-address", "s", internal.ConnectSNI, "SNI address to use for MASQUE connection")
-	nativeTunCmd.Flags().DurationP("keepalive-period", "k", 30*time.Second, "Keepalive period for MASQUE connection")
+	nativeTunCmd.Flags().DurationP("keepalive-period", "k", 10*time.Second, "Keepalive period for MASQUE connection")
 	nativeTunCmd.Flags().IntP("mtu", "m", 1280, "MTU for MASQUE connection")
 	nativeTunCmd.Flags().Uint16P("initial-packet-size", "i", 1242, "Initial packet size for MASQUE connection")
 	nativeTunCmd.Flags().BoolP("no-iproute2", "I", false, "Linux only: Do not set up IP addresses and do not set the link up")
-	nativeTunCmd.Flags().DurationP("reconnect-delay", "r", 1*time.Second, "Delay between reconnect attempts")
-	nativeTunCmd.Flags().StringP("interface-name", "n", "", "Custom inteface name for the TUN interface")
+	nativeTunCmd.Flags().DurationP("reconnect-delay", "r", 200*time.Millisecond, "Delay between reconnect attempts")
+	nativeTunCmd.Flags().StringP("interface-name", "n", "", "Custom interface name for the TUN interface")
+	nativeTunCmd.Flags().BoolP("ipv6", "6", false, "Use IPv6 for MASQUE connection")
+	nativeTunCmd.Flags().IntP("connect-port", "P", 443, "Used port for MASQUE connection")
 	rootCmd.AddCommand(nativeTunCmd)
 }

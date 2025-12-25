@@ -14,11 +14,11 @@ var (
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "Print the version number of usque",
+	Short: "Print the version information",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("usque version: %s\n", version)
-		fmt.Printf("Commit: %s\n", commit)
-		fmt.Printf("Build Date: %s\n", date)
+		fmt.Printf("Usque Version: %s\n", version)
+		fmt.Printf("Git Commit:    %s\n", commit)
+		fmt.Printf("Build Date:    %s\n", date)
 	},
 }
 

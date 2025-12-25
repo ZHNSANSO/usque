@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -75,16 +74,23 @@ var portFwCmd = &cobra.Command{
 			return
 		}
 
-		var endpoint *net.UDPAddr
-		if ipv6, err := cmd.Flags().GetBool("ipv6"); err == nil && !ipv6 {
-			endpoint = &net.UDPAddr{
-				IP:   net.ParseIP(config.AppConfig.EndpointV4),
-				Port: connectPort,
-			}
-		} else {
-			endpoint = &net.UDPAddr{
-				IP:   net.ParseIP(config.AppConfig.EndpointV6),
-				Port: connectPort,
+		var endpointV4, endpointV6 *net.UDPAddr
+		if ipv6, err := cmd.Flags().GetBool("ipv6"); err == nil {
+			if !ipv6 {
+				endpointV4 = &net.UDPAddr{
+					IP:   net.ParseIP(config.AppConfig.EndpointV4),
+					Port: connectPort,
+				}
+				endpointV6 = &net.UDPAddr{
+					IP:   net.ParseIP(config.AppConfig.EndpointV6),
+					Port: connectPort,
+				}
+			} else {
+				endpointV6 = &net.UDPAddr{
+					IP:   net.ParseIP(config.AppConfig.EndpointV6),
+					Port: connectPort,
+				}
+				endpointV4 = nil
 			}
 		}
 
@@ -128,7 +134,7 @@ var portFwCmd = &cobra.Command{
 		for _, dns := range dnsServers {
 			addr, err := netip.ParseAddr(dns)
 			if err != nil {
-				cmd.Printf("Failed to parse DNS server: %v\n", err)
+				cmd.Printf("Failed to parse DNS server: %v\n", addr)
 				return
 			}
 			dnsAddrs = append(dnsAddrs, addr)
@@ -189,7 +195,7 @@ var portFwCmd = &cobra.Command{
 		}
 		defer tunDev.Close()
 
-		go api.MaintainTunnel(context.Background(), tlsConfig, keepalivePeriod, initialPacketSize, endpoint, api.NewNetstackAdapter(tunDev), mtu, reconnectDelay)
+		go api.MaintainTunnel(context.Background(), tlsConfig, keepalivePeriod, initialPacketSize, endpointV4, endpointV6, api.NewNetstackAdapter(tunDev), mtu, reconnectDelay)
 
 		log.Printf("Virtual tunnel created, forwarding ports")
 
@@ -237,14 +243,6 @@ var portFwCmd = &cobra.Command{
 }
 
 // forwardPort sets up a local or remote port forwarding using either the MASQUE tunnel or the local network.
-//
-// Parameters:
-//   - netstackNet: *netstack.Net - The network stack used for handling remote forwarding.
-//   - pm: internal.PortMapping - The port mapping configuration containing bind address, local port, remote IP, and remote port.
-//   - isRemote: bool - Indicates whether the forwarding is remote (true) or local (false).
-//
-// Returns:
-//   - error: An error if port forwarding fails; otherwise, nil.
 func forwardPort(netstackNet *netstack.Net, pm internal.PortMapping, isRemote bool) error {
 	localAddrPort, err := netip.ParseAddrPort(fmt.Sprintf("%s:%d", pm.BindAddress, pm.LocalPort))
 	if err != nil {
@@ -293,12 +291,6 @@ func forwardPort(netstackNet *netstack.Net, pm internal.PortMapping, isRemote bo
 }
 
 // handleConnection manages an individual forwarded connection between the local and remote endpoints.
-//
-// Parameters:
-//   - localConn: net.Conn - The connection from the source (client).
-//   - pm: internal.PortMapping - The port mapping configuration.
-//   - isRemote: bool - Indicates whether the connection is remote-forwarded.
-//   - tunNet: *netstack.Net - The network stack used for making remote connections.
 func handleConnection(localConn net.Conn, pm internal.PortMapping, isRemote bool, tunNet *netstack.Net) {
 	defer localConn.Close()
 
@@ -323,8 +315,8 @@ func handleConnection(localConn net.Conn, pm internal.PortMapping, isRemote bool
 	}
 	defer remoteConn.Close()
 
-	go func() { io.Copy(remoteConn, localConn) }()
-	io.Copy(localConn, remoteConn)
+	go func() { internal.CopyBuffer(remoteConn, localConn) }()
+	internal.CopyBuffer(localConn, remoteConn)
 }
 
 func init() {
