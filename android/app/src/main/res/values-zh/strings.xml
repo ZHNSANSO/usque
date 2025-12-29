@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Usque VPN</string>
+    <string name="status_label">状态</string>
+    <string name="status_connected">已连接</string>
+    <string name="status_disconnected">未连接</string>
+    <string name="ip_label">内网 IP</string>
+    <string name="not_registered">未注册</string>
+    <string name="settings_title">连接设置</string>
+    <string name="save_btn">保存</string>
+    <string name="cancel_btn">取消</string>
+    <string name="reset_btn">重置</string>
+    <string name="connect_btn">开启连接</string>
+    <string name="disconnect_btn">停止连接</string>
+    <string name="settings_btn">配置</string>
+    <string name="sni_hint">SNI 伪装域名</string>
+    <string name="endpoint_hint">节点地址 (host:port)</string>
+    <string name="toast_updated">设置已更新</string>
+</resources>
