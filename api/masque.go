@@ -6,15 +6,16 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
-	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	connectip "github.com/Diniboy1123/connect-ip-go"
+	"github.com/Diniboy1123/usque/config"
 	"github.com/Diniboy1123/usque/internal"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
@@ -62,36 +63,24 @@ func PrepareTlsConfig(privKey *ecdsa.PrivateKey, peerPubKey *ecdsa.PublicKey, ce
 }
 
 // ConnectTunnel establishes a QUIC connection and sets up a Connect-IP tunnel.
-// Implements Happy Eyeballs (RFC 8305) to race IPv4 and IPv6 connections.
-func ConnectTunnel(ctx context.Context, tlsConfig *tls.Config, quicConfig *quic.Config, connectUri string, endpointV4, endpointV6 *net.UDPAddr) (*net.UDPConn, *http3.Transport, *connectip.Conn, *http.Response, error) {
+// Implements a generalized Happy Eyeballs (RFC 8305) to race candidate endpoints.
+func ConnectTunnel(ctx context.Context, tlsConfig *tls.Config, quicConfig *quic.Config, connectUri string, endpoints []*net.UDPAddr) (*net.UDPConn, *http3.Transport, *connectip.Conn, *http.Response, error) {
 	type dialResult struct {
 		udpConn *net.UDPConn
-		qConn   *quic.Conn
+		tr      *http3.Transport
+		ipConn  *connectip.Conn
+		rsp     *http.Response
 		err     error
 	}
 
-	resultCh := make(chan dialResult)
+	resultCh := make(chan dialResult, len(endpoints))
 	dialCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	var wg sync.WaitGroup
 
-	dial := func(ep *net.UDPAddr, delay time.Duration) {
+	dial := func(ep *net.UDPAddr) {
 		defer wg.Done()
-
-		if delay > 0 {
-			timer := time.NewTimer(delay)
-			select {
-			case <-timer.C:
-			case <-dialCtx.Done():
-				timer.Stop()
-				return
-			}
-		}
-
-		if dialCtx.Err() != nil {
-			return
-		}
 
 		var udpConn *net.UDPConn
 		var err error
@@ -112,33 +101,56 @@ func ConnectTunnel(ctx context.Context, tlsConfig *tls.Config, quicConfig *quic.
 			return
 		}
 
+		tr := &http3.Transport{
+			EnableDatagrams:    true,
+			AdditionalSettings: map[uint64]uint64{0x276: 1}, // SETTINGS_H3_DATAGRAM_00
+			DisableCompression: true,
+		}
+
+		hconn := tr.NewClientConn(qConn)
+		additionalHeaders := http.Header{"User-Agent": []string{""}}
+		template := uritemplate.MustNew(connectUri)
+
+		ipConn, rsp, err := connectip.Dial(dialCtx, hconn, template, "cf-connect-ip", additionalHeaders, true)
+		if err != nil {
+			qConn.CloseWithError(0, "dial failed")
+			udpConn.Close()
+			return
+		}
+
+		if rsp.StatusCode != 200 {
+			ipConn.Close()
+			qConn.CloseWithError(0, "bad status")
+			udpConn.Close()
+			return
+		}
+
 		select {
-		case resultCh <- dialResult{udpConn: udpConn, qConn: qConn}:
+		case resultCh <- dialResult{udpConn: udpConn, tr: tr, ipConn: ipConn, rsp: rsp}:
+			cancel() // Winner! Stop others.
 		case <-dialCtx.Done():
+			ipConn.Close()
 			qConn.CloseWithError(0, "lost race")
 			udpConn.Close()
 		}
 	}
 
-	attempts := 0
-	if endpointV6 != nil {
-		attempts++
-		wg.Add(1)
-		go dial(endpointV6, 0)
-	}
-
-	if endpointV4 != nil {
-		attempts++
-		wg.Add(1)
-		delay := 200 * time.Millisecond
-		if endpointV6 == nil {
-			delay = 0
+	for i, ep := range endpoints {
+		if ep == nil {
+			continue
 		}
-		go dial(endpointV4, delay)
-	}
+		wg.Add(1)
+		go dial(ep)
 
-	if attempts == 0 {
-		return nil, nil, nil, nil, errors.New("no endpoints provided")
+		// Happy Eyeballs Delay: wait 200ms before starting next attempt
+		if i < len(endpoints)-1 {
+			timer := time.NewTimer(200 * time.Millisecond)
+			select {
+			case <-timer.C:
+			case <-dialCtx.Done():
+				timer.Stop()
+			}
+		}
 	}
 
 	go func() {
@@ -151,45 +163,39 @@ func ConnectTunnel(ctx context.Context, tlsConfig *tls.Config, quicConfig *quic.
 		return nil, nil, nil, nil, errors.New("all connection attempts failed")
 	}
 
-	udpConn := res.udpConn
-	conn := res.qConn
-
-	tr := &http3.Transport{
-		EnableDatagrams:    true,
-		AdditionalSettings: map[uint64]uint64{0x276: 1}, // SETTINGS_H3_DATAGRAM_00
-		DisableCompression: true,
-	}
-
-	hconn := tr.NewClientConn(conn)
-	additionalHeaders := http.Header{"User-Agent": []string{""}}
-	template := uritemplate.MustNew(connectUri)
-
-	ipConn, rsp, err := connectip.Dial(ctx, hconn, template, "cf-connect-ip", additionalHeaders, true)
-	if err != nil {
-		if err.Error() == "CRYPTO_ERROR 0x131 (remote): tls: access denied" {
-			return udpConn, nil, nil, nil, errors.New("login failed! Please double-check if your tls key and cert is enrolled in the Cloudflare Access service")
-		}
-		return udpConn, nil, nil, nil, fmt.Errorf("failed to dial connect-ip: %v", err)
-	}
-
-	return udpConn, tr, ipConn, rsp, nil
+	return res.udpConn, res.tr, res.ipConn, res.rsp, nil
 }
 
 // MaintainTunnel continuously connects to the MASQUE server and handles packet forwarding.
-// It uses an atomic pointer to swap the active connection, ensuring a single TUN reader
-// without complex channel orchestration.
-func MaintainTunnel(ctx context.Context, tlsConfig *tls.Config, keepalivePeriod time.Duration, initialPacketSize uint16, endpointV4, endpointV6 *net.UDPAddr, device TunnelDevice, mtu int, reconnectDelay time.Duration) {
+func MaintainTunnel(ctx context.Context, config *config.Config, keepalivePeriod time.Duration, initialPacketSize uint16, device TunnelDevice, mtu int, reconnectDelay time.Duration) {
 	packetBufferPool := NewNetBuffer(mtu)
-
-	// Active connection holder. Atomic for thread-safe lock-free access.
 	var activeConn atomic.Pointer[connectip.Conn]
 
-	currentV4 := endpointV4
-	currentV6 := endpointV6
+	// 1. Prepare TLS Config with SNI Spoofing
+	sni := config.SNI
+	if sni == "" {
+		sni = internal.ConnectSNI
+	}
+
+	privKey, err := config.GetEcPrivateKey()
+	if err != nil {
+		log.Fatalf("Failed to get private key: %v", err)
+	}
+	peerPubKey, err := config.GetEcEndpointPublicKey()
+	if err != nil {
+		log.Fatalf("Failed to get endpoint public key: %v", err)
+	}
+	cert, err := internal.GenerateCert(privKey, &privKey.PublicKey)
+	if err != nil {
+		log.Fatalf("Failed to generate cert: %v", err)
+	}
+
+	tlsConfig, err := PrepareTlsConfig(privKey, peerPubKey, cert, sni)
+	if err != nil {
+		log.Fatalf("Failed to prepare TLS config: %v", err)
+	}
 
 	// Persistent TUN Reader Loop
-	// This goroutine runs for the entire lifetime of the application.
-	// It reads from the TUN device and attempts to write to the current active connection.
 	go func() {
 		buf := packetBufferPool.Get()
 		defer packetBufferPool.Put(buf)
@@ -197,20 +203,12 @@ func MaintainTunnel(ctx context.Context, tlsConfig *tls.Config, keepalivePeriod 
 		for {
 			n, err := device.ReadPacket(buf)
 			if err != nil {
-				log.Printf("Critical: failed to read from TUN device: %v", err)
 				return
 			}
-
-			// Load the current active connection
 			conn := activeConn.Load()
 			if conn != nil {
-				_, err := conn.WritePacket(buf[:n])
-				if err != nil {
-					// We don't panic here; the main loop handles reconnection.
-					// Just log debug if needed, or ignore as packet loss.
-				}
+				conn.WritePacket(buf[:n])
 			}
-			// If conn is nil, we simply drop the packet (mimics outage).
 		}
 	}()
 
@@ -220,60 +218,74 @@ func MaintainTunnel(ctx context.Context, tlsConfig *tls.Config, keepalivePeriod 
 			return
 		}
 
-		log.Printf("Establishing MASQUE connection (IPv4: %v, IPv6: %v)", currentV4, currentV6)
-		udpConn, tr, ipConn, rsp, err := ConnectTunnel(
+		// Collect all possible endpoints from config and prioritize IPv6
+		var rawEndpoints []string
+		if config.Endpoint != "" {
+			rawEndpoints = append(rawEndpoints, config.Endpoint)
+		}
+		if config.EndpointV6 != "" {
+			rawEndpoints = append(rawEndpoints, config.EndpointV6)
+		}
+		if config.EndpointV4 != "" {
+			rawEndpoints = append(rawEndpoints, config.EndpointV4)
+		}
+
+		// Debug: log what we found in config
+		log.Printf("Config points: endpoint=%q, v6=%s, v4=%s", config.Endpoint, config.EndpointV6, config.EndpointV4)
+
+		var endpoints []*net.UDPAddr
+		seen := make(map[string]bool)
+
+		for _, raw := range rawEndpoints {
+			for _, ep := range internal.DeriveEndpoints(raw) {
+				s := ep.String()
+				if !seen[s] {
+					endpoints = append(endpoints, ep)
+					seen[s] = true
+				}
+			}
+		}
+
+		// Re-sort to ensure IPv6 candidates come first
+		sort.SliceStable(endpoints, func(i, j int) bool {
+			return endpoints[i].IP.To4() == nil && endpoints[j].IP.To4() != nil
+		})
+
+		if len(endpoints) == 0 {
+			log.Fatalf("Invalid or empty endpoint configuration")
+		}
+
+		log.Printf("Establishing MASQUE connection (SNI: %s, Candidates: %v)", sni, endpoints)
+		udpConn, tr, ipConn, _, err := ConnectTunnel(
 			ctx,
 			tlsConfig,
 			internal.DefaultQuicConfig(keepalivePeriod, initialPacketSize),
 			internal.ConnectURI,
-			currentV4,
-			currentV6,
+			endpoints,
 		)
 
 		if err != nil {
 			log.Printf("Failed to connect tunnel: %v", err)
-			currentV4 = internal.GetNextEndpoint(currentV4)
-			currentV6 = internal.GetNextEndpoint(currentV6)
-			time.Sleep(reconnectDelay)
-			continue
-		}
-
-		if rsp.StatusCode != 200 {
-			log.Printf("Tunnel connection failed: %s", rsp.Status)
-			ipConn.Close()
-			if udpConn != nil {
-				udpConn.Close()
-			}
-			if tr != nil {
-				tr.Close()
-			}
 			time.Sleep(reconnectDelay)
 			continue
 		}
 
 		log.Println("Connected to MASQUE server")
-
-		// Publish the new connection to the reader
 		activeConn.Store(ipConn)
 
 		// IP -> TUN Reader Loop (Block until connection dies)
-		// We use a separate buffer for this loop
 		readBuf := packetBufferPool.Get()
 		for {
 			n, err := ipConn.ReadPacket(readBuf, true)
 			if err != nil {
-				log.Printf("Tunnel connection lost: %v. Reconnecting...", err)
 				break
 			}
-			if err := device.WritePacket(readBuf[:n]); err != nil {
-				log.Printf("Failed to write to TUN device: %v", err)
-				break
-			}
+			device.WritePacket(readBuf[:n])
 		}
 		packetBufferPool.Put(readBuf)
 
 		// Teardown
-		activeConn.Store(nil) // Stop sending packets to dead connection
+		activeConn.Store(nil)
 		ipConn.Close()
 		if udpConn != nil {
 			udpConn.Close()
@@ -281,9 +293,6 @@ func MaintainTunnel(ctx context.Context, tlsConfig *tls.Config, keepalivePeriod 
 		if tr != nil {
 			tr.Close()
 		}
-
-		currentV4 = internal.GetNextEndpoint(currentV4)
-		currentV6 = internal.GetNextEndpoint(currentV6)
 		time.Sleep(reconnectDelay)
 	}
 }

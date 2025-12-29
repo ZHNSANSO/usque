@@ -285,9 +285,71 @@ func LoginToBase64(username, password string) string {
 	return base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
 }
 
+// ParseEndpoint parses a string into a UDPAddr, adding default port 443 if missing.
+func ParseEndpoint(s string) (*net.UDPAddr, error) {
+	if s == "" {
+		return nil, errors.New("empty endpoint")
+	}
+
+	// Simple and robust. Let net.ResolveUDPAddr do the heavy lifting.
+	// We only ensure there's a port and handles IPv6 brackets if needed.
+	addr := s
+	if !strings.Contains(s, "]") && strings.Count(s, ":") > 1 {
+		// Raw IPv6, wrap it
+		addr = "[" + s + "]"
+	}
+
+	if !strings.Contains(addr, ":") || (strings.HasPrefix(addr, "[") && !strings.Contains(addr[strings.LastIndex(addr, "]"):], ":")) {
+		// Missing port
+		addr = addr + ":443"
+	}
+
+	return net.ResolveUDPAddr("udp", addr)
+}
+
+// DeriveEndpoints generates a list of candidate endpoints based on the primary one.
+// It applies the Cloudflare-specific .1/.2 fallback heuristic.
+func DeriveEndpoints(raw string) []*net.UDPAddr {
+	base, err := ParseEndpoint(raw)
+	if err != nil {
+		return nil
+	}
+
+	results := []*net.UDPAddr{base}
+
+	// Heuristic: toggles the last byte between 1 and 2
+	ip := base.IP
+	if ip4 := ip.To4(); ip4 != nil {
+		if ip4[3] == 1 || ip4[3] == 2 {
+			fallbackIP := make(net.IP, len(ip4))
+			copy(fallbackIP, ip4)
+			if ip4[3] == 1 {
+				fallbackIP[3] = 2
+			} else {
+				fallbackIP[3] = 1
+			}
+			results = append(results, &net.UDPAddr{IP: fallbackIP, Port: base.Port})
+		}
+	} else if len(ip) == 16 {
+		// IPv6 logic: Cloudflare Warp IPv6 endpoints often end in :1 or :2
+		lastByte := ip[15]
+		if lastByte == 1 || lastByte == 2 {
+			fallbackIP := make(net.IP, 16)
+			copy(fallbackIP, ip)
+			if lastByte == 1 {
+				fallbackIP[15] = 2
+			} else {
+				fallbackIP[15] = 1
+			}
+			results = append(results, &net.UDPAddr{IP: fallbackIP, Port: base.Port})
+		}
+	}
+
+	return results
+}
+
 // GetNextEndpoint toggles the last byte of the IP address between 1 and 2.
-// This is a heuristic to find an alternative Cloudflare Warp endpoint,
-// as observation shows that if .1 is blocked, .2 often works (and vice versa).
+// This is kept for backward compatibility but ParseAndDerive is preferred.
 func GetNextEndpoint(addr *net.UDPAddr) *net.UDPAddr {
 	if addr == nil || len(addr.IP) == 0 {
 		return nil

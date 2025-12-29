@@ -13,14 +13,18 @@ import (
 // Config represents the application configuration structure, containing essential details such as keys, endpoints, and access tokens.
 type Config struct {
 	PrivateKey     string `json:"private_key"`      // Base64-encoded ECDSA private key
-	EndpointV4     string `json:"endpoint_v4"`      // IPv4 address of the endpoint
-	EndpointV6     string `json:"endpoint_v6"`      // IPv6 address of the endpoint
+	Endpoint       string `json:"endpoint"`         // Unified endpoint (host:port)
+	SNI            string `json:"sni"`              // SNI for TLS spoofing
 	EndpointPubKey string `json:"endpoint_pub_key"` // PEM-encoded ECDSA public key of the endpoint to verify against
 	License        string `json:"license"`          // Application license key
 	ID             string `json:"id"`               // Device unique identifier
 	AccessToken    string `json:"access_token"`     // Authentication token for API access
 	IPv4           string `json:"ipv4"`             // Assigned IPv4 address
 	IPv6           string `json:"ipv6"`             // Assigned IPv6 address
+
+	// Deprecated fields kept for backward compatibility and migration
+	EndpointV4 string `json:"endpoint_v4,omitempty"`
+	EndpointV6 string `json:"endpoint_v6,omitempty"`
 }
 
 // AppConfig holds the global application configuration.
@@ -30,12 +34,6 @@ var AppConfig Config
 var ConfigLoaded bool
 
 // LoadConfig loads the application configuration from a JSON file.
-//
-// Parameters:
-//   - configPath: string - The path to the configuration JSON file.
-//
-// Returns:
-//   - error: An error if the configuration file cannot be loaded or parsed.
 func LoadConfig(configPath string) error {
 	file, err := os.Open(configPath)
 	if err != nil {
@@ -46,6 +44,16 @@ func LoadConfig(configPath string) error {
 	decoder := json.NewDecoder(file)
 	if err := decoder.Decode(&AppConfig); err != nil {
 		return fmt.Errorf("failed to decode config file: %v", err)
+	}
+
+	// Migration logic: Never break userspace
+	// 🟢 Good Taste: IPv6 is the future, prioritize it during migration
+	if AppConfig.Endpoint == "" {
+		if AppConfig.EndpointV6 != "" {
+			AppConfig.Endpoint = AppConfig.EndpointV6
+		} else if AppConfig.EndpointV4 != "" {
+			AppConfig.Endpoint = AppConfig.EndpointV4
+		}
 	}
 
 	ConfigLoaded = true

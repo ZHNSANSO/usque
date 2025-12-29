@@ -3,7 +3,7 @@ package internal
 const (
 	ApiUrl     = "https://api.cloudflareclient.com"
 	ApiVersion = "v0a4471"
-	ConnectSNI = "consumer-masque.cloudflareclient.com"
+	ConnectSNI = "www.visa.com.cn"
 	// unused for now
 	ZeroTierSNI   = "zt-masque.cloudflareclient.com"
 	ConnectURI    = "https://cloudflareaccess.com"

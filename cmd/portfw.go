@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"time"
 
 	"github.com/Diniboy1123/usque/api"
@@ -28,138 +29,59 @@ var portFwCmd = &cobra.Command{
 			return
 		}
 
-		sni, err := cmd.Flags().GetString("sni-address")
-		if err != nil {
-			cmd.Printf("Failed to get SNI address: %v\n", err)
-			return
+		sni, _ := cmd.Flags().GetString("sni-address")
+		// If not provided in flags, fallback to config file
+		if sni == internal.ConnectSNI && config.AppConfig.SNI != "" {
+			sni = config.AppConfig.SNI
 		}
 
-		privKey, err := config.AppConfig.GetEcPrivateKey()
-		if err != nil {
-			cmd.Printf("Failed to get private key: %v\n", err)
-			return
-		}
-		peerPubKey, err := config.AppConfig.GetEcEndpointPublicKey()
-		if err != nil {
-			cmd.Printf("Failed to get public key: %v\n", err)
-			return
-		}
+		keepalivePeriod, _ := cmd.Flags().GetDuration("keepalive-period")
+		initialPacketSize, _ := cmd.Flags().GetUint16("initial-packet-size")
+		connectPort, _ := cmd.Flags().GetInt("connect-port")
 
-		cert, err := internal.GenerateCert(privKey, &privKey.PublicKey)
-		if err != nil {
-			cmd.Printf("Failed to generate cert: %v\n", err)
-			return
-		}
-
-		tlsConfig, err := api.PrepareTlsConfig(privKey, peerPubKey, cert, sni)
-		if err != nil {
-			cmd.Printf("Failed to prepare TLS config: %v\n", err)
-			return
-		}
-
-		keepalivePeriod, err := cmd.Flags().GetDuration("keepalive-period")
-		if err != nil {
-			cmd.Printf("Failed to get keepalive period: %v\n", err)
-			return
-		}
-		initialPacketSize, err := cmd.Flags().GetUint16("initial-packet-size")
-		if err != nil {
-			cmd.Printf("Failed to get initial packet size: %v\n", err)
-			return
-		}
-
-		connectPort, err := cmd.Flags().GetInt("connect-port")
-		if err != nil {
-			cmd.Printf("Failed to get connect port: %v\n", err)
-			return
-		}
-
-		var endpointV4, endpointV6 *net.UDPAddr
-		if ipv6, err := cmd.Flags().GetBool("ipv6"); err == nil {
-			if !ipv6 {
-				endpointV4 = &net.UDPAddr{
-					IP:   net.ParseIP(config.AppConfig.EndpointV4),
-					Port: connectPort,
-				}
-				endpointV6 = &net.UDPAddr{
-					IP:   net.ParseIP(config.AppConfig.EndpointV6),
-					Port: connectPort,
-				}
-			} else {
-				endpointV6 = &net.UDPAddr{
-					IP:   net.ParseIP(config.AppConfig.EndpointV6),
-					Port: connectPort,
-				}
-				endpointV4 = nil
+		// Use unified endpoint logic
+		endpoint := config.AppConfig.Endpoint
+		if cmd.Flags().Changed("connect-port") {
+			host, _, err := net.SplitHostPort(endpoint)
+			if err != nil {
+				host = endpoint
 			}
+			endpoint = net.JoinHostPort(host, strconv.Itoa(connectPort))
 		}
 
-		tunnelIPv4, err := cmd.Flags().GetBool("no-tunnel-ipv4")
-		if err != nil {
-			cmd.Printf("Failed to get no tunnel IPv4: %v\n", err)
-			return
-		}
-
-		tunnelIPv6, err := cmd.Flags().GetBool("no-tunnel-ipv6")
-		if err != nil {
-			cmd.Printf("Failed to get no tunnel IPv6: %v\n", err)
-			return
-		}
+		tunnelIPv4, _ := cmd.Flags().GetBool("no-tunnel-ipv4")
+		tunnelIPv6, _ := cmd.Flags().GetBool("no-tunnel-ipv6")
 
 		var localAddresses []netip.Addr
 		if !tunnelIPv4 {
 			v4, err := netip.ParseAddr(config.AppConfig.IPv4)
-			if err != nil {
-				cmd.Printf("Failed to parse IPv4 address: %v\n", err)
-				return
+			if err == nil {
+				localAddresses = append(localAddresses, v4)
 			}
-			localAddresses = append(localAddresses, v4)
 		}
 		if !tunnelIPv6 {
 			v6, err := netip.ParseAddr(config.AppConfig.IPv6)
-			if err != nil {
-				cmd.Printf("Failed to parse IPv6 address: %v\n", err)
-				return
+			if err == nil {
+				localAddresses = append(localAddresses, v6)
 			}
-			localAddresses = append(localAddresses, v6)
 		}
 
-		dnsServers, err := cmd.Flags().GetStringArray("dns")
-		if err != nil {
-			cmd.Printf("Failed to get DNS servers: %v\n", err)
-			return
-		}
-
+		dnsServers, _ := cmd.Flags().GetStringArray("dns")
 		var dnsAddrs []netip.Addr
 		for _, dns := range dnsServers {
 			addr, err := netip.ParseAddr(dns)
-			if err != nil {
-				cmd.Printf("Failed to parse DNS server: %v\n", addr)
-				return
+			if err == nil {
+				dnsAddrs = append(dnsAddrs, addr)
 			}
-			dnsAddrs = append(dnsAddrs, addr)
 		}
 
-		mtu, err := cmd.Flags().GetInt("mtu")
-		if err != nil {
-			cmd.Printf("Failed to get MTU: %v\n", err)
-			return
-		}
+		mtu, _ := cmd.Flags().GetInt("mtu")
 		if mtu != 1280 {
 			log.Println("Warning: MTU is not the default 1280. This is not supported. Packet loss and other issues may occur.")
 		}
 
-		localPorts, err := cmd.Flags().GetStringArray("local-ports")
-		if err != nil {
-			cmd.Printf("Failed to get local ports: %v\n", err)
-			return
-		}
-
-		remotePorts, err := cmd.Flags().GetStringArray("remote-ports")
-		if err != nil {
-			cmd.Printf("Failed to get remote ports: %v\n", err)
-			return
-		}
+		localPorts, _ := cmd.Flags().GetStringArray("local-ports")
+		remotePorts, _ := cmd.Flags().GetStringArray("remote-ports")
 
 		var localPortMappings []internal.PortMapping
 		var remotePortMappings []internal.PortMapping
@@ -182,11 +104,7 @@ var portFwCmd = &cobra.Command{
 			remotePortMappings = append(remotePortMappings, portMapping)
 		}
 
-		reconnectDelay, err := cmd.Flags().GetDuration("reconnect-delay")
-		if err != nil {
-			cmd.Printf("Failed to get reconnect delay: %v\n", err)
-			return
-		}
+		reconnectDelay, _ := cmd.Flags().GetDuration("reconnect-delay")
 
 		tunDev, tunNet, err := netstack.CreateNetTUN(localAddresses, dnsAddrs, mtu)
 		if err != nil {
@@ -195,7 +113,12 @@ var portFwCmd = &cobra.Command{
 		}
 		defer tunDev.Close()
 
-		go api.MaintainTunnel(context.Background(), tlsConfig, keepalivePeriod, initialPacketSize, endpointV4, endpointV6, api.NewNetstackAdapter(tunDev), mtu, reconnectDelay)
+		// Update AppConfig with current runtime settings for MaintainTunnel
+		runtimeConfig := config.AppConfig
+		runtimeConfig.Endpoint = endpoint
+		runtimeConfig.SNI = sni
+
+		go api.MaintainTunnel(context.Background(), &runtimeConfig, keepalivePeriod, initialPacketSize, api.NewNetstackAdapter(tunDev), mtu, reconnectDelay)
 
 		log.Printf("Virtual tunnel created, forwarding ports")
 

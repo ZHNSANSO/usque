@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"context"
-	"crypto/tls"
 	"log"
 	"net"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"time"
 
 	"github.com/Diniboy1123/usque/api"
@@ -21,8 +21,8 @@ type ProxyConfig struct {
 	BindAddress       string
 	Port              string
 	ConnectPort       int
-	EndpointV4        *net.UDPAddr
-	EndpointV6        *net.UDPAddr
+	Endpoint          string // Unified endpoint string
+	SNI               string // Target SNI
 	LocalAddresses    []netip.Addr
 	DNSAddrs          []netip.Addr
 	DNSTimeout        time.Duration
@@ -33,7 +33,6 @@ type ProxyConfig struct {
 	ReconnectDelay    time.Duration
 	KeepalivePeriod   time.Duration
 	InitialPacketSize uint16
-	TLSConfig         *tls.Config
 }
 
 // LoadProxyConfig loads the common configuration from command flags.
@@ -46,24 +45,9 @@ func LoadProxyConfig(cmd *cobra.Command) (*ProxyConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	privKey, err := config.AppConfig.GetEcPrivateKey()
-	if err != nil {
-		return nil, err
-	}
-	peerPubKey, err := config.AppConfig.GetEcEndpointPublicKey()
-	if err != nil {
-		return nil, err
-	}
-
-	cert, err := internal.GenerateCert(privKey, &privKey.PublicKey)
-	if err != nil {
-		return nil, err
-	}
-
-	tlsConfig, err := api.PrepareTlsConfig(privKey, peerPubKey, cert, sni)
-	if err != nil {
-		return nil, err
+	// If not provided in flags, fallback to config file
+	if sni == internal.ConnectSNI && config.AppConfig.SNI != "" {
+		sni = config.AppConfig.SNI
 	}
 
 	keepalivePeriod, err := cmd.Flags().GetDuration("keepalive-period")
@@ -90,20 +74,17 @@ func LoadProxyConfig(cmd *cobra.Command) (*ProxyConfig, error) {
 		return nil, err
 	}
 
-	var endpointV4, endpointV6 *net.UDPAddr
-	if ip := net.ParseIP(config.AppConfig.EndpointV4); ip != nil {
-		endpointV4 = &net.UDPAddr{IP: ip, Port: connectPort}
-	}
-	if ip := net.ParseIP(config.AppConfig.EndpointV6); ip != nil {
-		endpointV6 = &net.UDPAddr{IP: ip, Port: connectPort}
-	}
-
-	if cmd.Flags().Changed("ipv6") {
-		ipv6, _ := cmd.Flags().GetBool("ipv6")
-		if ipv6 {
-			endpointV4 = nil
-		} else {
-			endpointV6 = nil
+	endpoint := config.AppConfig.Endpoint
+	// 🟢 Good Taste: If config.Endpoint is empty, it means LoadConfig didn't migrate or it's a fresh config.
+	// But we should trust the aggregate logic in api.MaintainTunnel.
+	// We only care about override port here.
+	if cmd.Flags().Changed("connect-port") {
+		host, _, err := net.SplitHostPort(endpoint)
+		if err != nil {
+			host = endpoint
+		}
+		if host != "" {
+			endpoint = net.JoinHostPort(host, strconv.Itoa(connectPort))
 		}
 	}
 
@@ -174,8 +155,8 @@ func LoadProxyConfig(cmd *cobra.Command) (*ProxyConfig, error) {
 		BindAddress:       bindAddress,
 		Port:              port,
 		ConnectPort:       connectPort,
-		EndpointV4:        endpointV4,
-		EndpointV6:        endpointV6,
+		Endpoint:          endpoint,
+		SNI:               sni,
 		LocalAddresses:    localAddresses,
 		DNSAddrs:          dnsAddrs,
 		DNSTimeout:        dnsTimeout,
@@ -186,7 +167,6 @@ func LoadProxyConfig(cmd *cobra.Command) (*ProxyConfig, error) {
 		ReconnectDelay:    reconnectDelay,
 		KeepalivePeriod:   keepalivePeriod,
 		InitialPacketSize: initialPacketSize,
-		TLSConfig:         tlsConfig,
 	}, nil
 }
 
@@ -196,9 +176,13 @@ func StartTunnel(ctx context.Context, cfg *ProxyConfig) (*netstack.Net, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Note: tunDev.Close() is leaked here as in original code, runs until exit.
 
-	go api.MaintainTunnel(ctx, cfg.TLSConfig, cfg.KeepalivePeriod, cfg.InitialPacketSize, cfg.EndpointV4, cfg.EndpointV6, api.NewNetstackAdapter(tunDev), cfg.MTU, cfg.ReconnectDelay)
+	// Update AppConfig with current runtime settings for MaintainTunnel
+	runtimeConfig := config.AppConfig
+	runtimeConfig.Endpoint = cfg.Endpoint
+	runtimeConfig.SNI = cfg.SNI
+
+	go api.MaintainTunnel(ctx, &runtimeConfig, cfg.KeepalivePeriod, cfg.InitialPacketSize, api.NewNetstackAdapter(tunDev), cfg.MTU, cfg.ReconnectDelay)
 
 	return tunNet, nil
 }
